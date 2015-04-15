@@ -11,7 +11,7 @@
 #include <list>
 #include <cstdlib>
 #include <getopt.h>
- #include <mpi.h>
+#include <mpi.h>
 
 using namespace std;
 
@@ -99,6 +99,9 @@ float scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std:
 
   float rvalue = 0;
 
+  float front_j = 0;
+  float tvalue = 0;
+
   for (unsigned int i = 1; i < options.num_genes + 1; ++i ){
 
     unsigned int ivalue = gene_list0[i-1];
@@ -112,11 +115,9 @@ float scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std:
           float jw = calculateWeight(j, options.pivot);
           float w = iw < jw ? iw : jw;
           (*front)[j] = (*back)[j-1] + w;
-          
+          front_j += w;           
       } else {
-
         (*front)[j] = (*back)[j] +  (*front)[j-1] - (*back)[j-1];
-        
       }
       // Now check for the largest R score
       float second_term =  static_cast<float>(i * j) / (options.num_genes * options.num_genes);
@@ -124,7 +125,10 @@ float scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std:
 
       if (rvalue < nvalue) {
         rvalue = nvalue;
+        tvalue = (front_j / total_weight) - second_term; 
       }
+
+    
     }
 
     // Flip over the memory in the rmatrix (front row becomes rear row)
@@ -132,9 +136,12 @@ float scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std:
     front = back;
     back = tmp;
 
-  }
+    // And the temp numbers
 
-  return rvalue * sqrt(options.num_genes);
+
+  }
+  return tvalue * sqrt(options.num_genes);
+  //return rvalue * sqrt(options.num_genes);
 }
 
 
