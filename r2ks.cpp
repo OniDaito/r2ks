@@ -11,6 +11,7 @@
 #include <list>
 #include <cstdlib>
 #include <getopt.h>
+ #include <mpi.h>
 
 using namespace std;
 
@@ -24,7 +25,19 @@ struct Options {
   unsigned int num_lists;
   unsigned int pivot;
 
+  // MPI
+  int num_procs, mpi_id;
+
 };
+
+
+// MPI Datatype
+typedef struct {
+  int i,j;
+  double result;
+}MPIResult;
+
+MPI_Datatype resultType;
 
 
 /**
@@ -60,13 +73,26 @@ float scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std:
     total_weight += calculateWeight(i, options.pivot);
   }
 
+  std::vector<unsigned int> buff (gene_list0.size());
+
+  for (unsigned int i = 0; i < gene_list0.size(); ++i ){
+    buff[ gene_list1[i] ] = i;
+  }
+
+
   // Create two diagonals that hold our current results.
   // Init with zeros. We add +1 as we want a border of 0s across the top and bottom of this matrix.
 
   std::vector< vector<float> > rmatrix(2, vector<float>(options.num_genes + 1));
 
+  std::vector<float> matrix0 (options.num_genes + 1);
+  std::vector<float> matrix1 (options.num_genes + 1);
+
+  std::vector<float> * front = &matrix0;
+  std::vector<float> * back = &matrix1;
+
   for (unsigned int i = 0; i < options.num_genes + 1; ++i ){
-    rmatrix[0][i] = rmatrix[1][i] = 0.0;
+    matrix0[i] = matrix1[i] = 0.0;
   }
 
   // Our nasty double loop Compare all the things!
@@ -85,27 +111,27 @@ float scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std:
           float iw = calculateWeight(i, options.pivot);
           float jw = calculateWeight(j, options.pivot);
           float w = iw < jw ? iw : jw;
-          rmatrix[1][j] = rmatrix[0][j-1] + w;
+          (*front)[j] = (*back)[j-1] + w;
           
       } else {
 
-        rmatrix[1][j] = rmatrix[0][j] +  rmatrix[1][j-1] - rmatrix[0][j-1];
+        (*front)[j] = (*back)[j] +  (*front)[j-1] - (*back)[j-1];
         
       }
       // Now check for the largest R score
       float second_term =  static_cast<float>(i * j) / (options.num_genes * options.num_genes);
-      float nvalue = (rmatrix[1][j] / total_weight) - second_term; 
+      float nvalue = ((*front)[j] / total_weight) - second_term; 
 
       if (rvalue < nvalue) {
         rvalue = nvalue;
       }
     }
 
-
     // Flip over the memory in the rmatrix (front row becomes rear row)
-    for (unsigned int k = 0; k < options.num_genes + 1; ++k ){
-      rmatrix[0][k] = rmatrix[1][k];
-    }
+    std::vector<float> * tmp = front;
+    front = back;
+    back = tmp;
+
   }
 
   return rvalue * sqrt(options.num_genes);
@@ -148,6 +174,8 @@ void readLineIndex(Options & options, int idx, std::vector<unsigned int> & gene_
     gene_list[gene_expression] = gidx;
     gidx++;
   }
+
+  fin.close();
 }
 
 
@@ -187,6 +215,105 @@ void parseCommandOptions (int argc, const char * argv[], Options &options) {
 
 }
 
+
+/**
+ * Master MPI Process
+ */
+
+void masterProcess(Options &options){
+  int total_tests =  options.num_lists * ( options.num_lists - 1) / 2;
+  int processes_per_node = total_tests / (options.num_procs - 1);
+  int extra_processes = total_tests % (options.num_procs - 1);
+
+  vector < int > test_numbers;
+
+  // Create our list of pairs
+  for (int i=1; i < options.num_lists + 1; ++i){
+    for (int j = i + 1; j < options.num_lists + 1; ++j){
+      test_numbers.push_back( i );
+      test_numbers.push_back( j );
+    }
+  }
+
+
+  // Send the initial values to each client process, its total number of tests
+  // and the test numbers themselves
+
+  for (int i = 1; i < options.num_procs; ++i){
+
+    int send_count = processes_per_node;
+    if (i == options.num_procs - 1)
+      send_count += extra_processes;
+
+    int offset = processes_per_node * 2 * (i-1);
+ 
+    send_count *= 2;
+    MPI_Send(&send_count, 1, MPI_INT, i, 999, MPI_COMM_WORLD);
+    MPI_Send(&test_numbers[offset], send_count, MPI_INT, i, 999, MPI_COMM_WORLD);
+
+  } 
+
+  // Now wait to receive the results
+
+  vector <MPIResult> results;
+
+  while(results.size() < total_tests){
+    MPIResult mp;
+    MPI_Status status;
+    MPI_Recv(&mp, 1, resultType, MPI_ANY_SOURCE,  MPI_ANY_TAG,MPI_COMM_WORLD, &status );
+    results.push_back(mp);
+  }
+
+  // Finish with the results
+  for (MPIResult mp : results){
+    std::cout << mp.i << "_" << mp.j << " " << mp.result << std::endl;
+  }
+
+
+}
+
+/**
+ * Client MPI Process
+ */
+
+void clientProcess(Options &options){
+
+  MPI_Status status;
+  int bsize;
+
+  MPI_Recv(&bsize, 1, MPI_INT, 0, MPI_ANY_TAG,MPI_COMM_WORLD, &status);
+  
+  int buffer[bsize];
+  MPI_Recv(&buffer, bsize, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+  // Now the proper loop begins
+
+  for (int i = 0; i < bsize; i+=2){
+    int l0 = buffer[i];
+    int l1 = buffer[i+1];
+
+  
+    std::vector<unsigned int> gene_list0(options.num_genes);
+    std::vector<unsigned int> gene_list1(options.num_genes);
+
+    readLineIndex(options, l0, gene_list0);
+    readLineIndex(options, l1, gene_list1);
+
+    float rvalue = scoreLists(options, gene_list0, gene_list1 );
+
+    MPIResult mp;
+    mp.i = l0;
+    mp.j = l1;
+    mp.result = rvalue;
+
+    MPI_Send(&mp, 1, resultType, 0, 999, MPI_COMM_WORLD);
+
+  }
+
+}
+
+
+
 /**
  * Main entry point
  */
@@ -196,19 +323,54 @@ int main (int argc, const char * argv[]) {
 
   // Defaults for Options
   ops.pivot = 0;
-
   parseCommandOptions(argc,argv,ops);
 
+  // MPI Init
+
+  MPI_Init(&argc, const_cast<char***>(&argv));
+  int length_name;
+  char name[200];
+
+  MPI_Comm_size(MPI_COMM_WORLD, &ops.num_procs);
+  MPI_Comm_rank(MPI_COMM_WORLD, &ops.mpi_id);
+  MPI_Get_processor_name(name, &length_name);
+  
+  if (ops.mpi_id == 0){
+    cout << "MPI NumProcs: " << ops.num_procs << endl;
+  }
+  
+  cout << "MPI ID: " << ops.mpi_id << " Name: " << name << endl;
+
+  /// MPI Datatype for results
+  MPI_Aint offsets[2], extent; 
+  MPI_Datatype oldtypes[2];
+  int blockcounts[2]; 
+
+  offsets[0] = 0; 
+  oldtypes[0] = MPI_INT; 
+  blockcounts[0] = 2; 
+ 
+  MPI_Type_extent(MPI_INT, &extent); 
+  offsets[1] = 2 * extent; 
+  oldtypes[1] = MPI_DOUBLE; 
+  blockcounts[1] = 1; 
+
+  MPI_Type_struct(2, blockcounts, offsets, oldtypes, &resultType); 
+  MPI_Type_commit(&resultType); 
+
+
+  // Read only, so mpi processes shouldnt clash with that
   readHeaderBlock(ops);
 
-  std::vector<unsigned int> gene_list0(ops.num_genes);
-  std::vector<unsigned int> gene_list1(ops.num_genes);
+  // The master MPI Process will farm out to the required processes
+  if (ops.mpi_id == 0){
+    masterProcess(ops);
 
-  readLineIndex(ops, 1, gene_list0);
-  readLineIndex(ops, 2, gene_list1);
+  } else {
+    clientProcess(ops);
+  }
 
-  float rvalue = scoreLists(ops, gene_list0, gene_list1 );
 
-  std::cout << rvalue << std::endl;
+  MPI_Finalize();
 
 }
