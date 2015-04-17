@@ -55,22 +55,13 @@ float calculateWeight(unsigned int idx, unsigned int pivot) {
 
 
 /**
- * Calculate the R Value for the given parameters
- */
-
-double calculateR(unsigned int i, unsigned int j, double front, double total_weight, Options & options){
-  double second_term = static_cast<double>((j+1) * (i+1)) / (options.num_genes * options.num_genes);
-  return (front / total_weight - second_term);
-}
-
-
-/**
  * Perform the r2ks score for two lists
  * Take the two lists, the corresponding weights and the total weight, then perform
  * the scoring.
  */
 
 double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std::vector<unsigned int> & gene_list1) {
+
 
   // First, calculate total weeight
   // TODO - we can so cache this
@@ -99,13 +90,15 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
   typedef struct {
     unsigned int pos_y;
     double value;
-    double prev_value;
- 
   }History;
+
+  // Used to calculate the actual score
+  double rvalue = 0.0;
+  double one_over = 1.0 /  (options.num_genes * options.num_genes);
+
 
   std::vector<History> history;
 
-  double rvalue = 0.0;
 
   // First line has no history, so we do this one separately.
   {
@@ -123,12 +116,12 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
     History nh;
     nh.value = front;
     nh.pos_y = pivot;
-    nh.prev_value = prev;
 
     history.push_back(nh);
 
   }
 
+  
   // Now we have a history so we perform the operation normally
 
   for (unsigned int i = 1; i < options.num_genes; ++i ){
@@ -141,143 +134,75 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
     double w = iw < jw ? iw : jw;
     
     double front = 0.0;
-    double prev = 0.0;
-
-    std::vector<History> new_history;
-
-    unsigned int prev_pos_y = 0;
-
-    // TODO - we should loop through in reverse as we
-    // we can save a lot of time. If the Pivot is greater
-    // than all histories we are quids in - we can do one operation
-    // and just copy across
-
-    // If pivot is less than all the history that will bump things up
-    if (pivot < history[0].pos_y){
-      front = history[0].prev_value + w;
-
-      // Add pivot as a new history item
-      History nh;
-      nh.value = front;
-      nh.prev_value = prev;
-      nh.pos_y = pivot;
-      new_history.push_back(nh);
-      prev_pos_y = pivot;
-    }
 
 
-    // Loop through the histories
-
-    for (History h : history){
-      prev = front;
-
-      // Check if out pivot happened between previous and this history
-      if (pivot > prev_pos_y && pivot < h.pos_y){
-        // It did so insert
-        front = h.prev_value + w;
-        History nh;
-        nh.prev_value = prev;
-        nh.value = front;
-        nh.pos_y = pivot;
-        new_history.push_back(nh);
-        prev = front;
-
-      }
-     
-      front = prev + h.value - h.prev_value;
-  
-      // Create new history
-      History nh;
-      nh.prev_value = prev;
-      nh.value = front;
-      nh.pos_y = h.pos_y;
-      new_history.push_back(nh);
-
-      prev_pos_y = nh.pos_y;
-
-    }
-
-    prev = front;
-
-    // Finally, we check to see if the pivot is still greater than all the histories
     History lh = history[history.size()-1];
+
+    // we check to see if the pivot is still greater than all the histories
+    // This is the best case scenario
+
     if (pivot > lh.pos_y){
       History nh;
-      nh.prev_value = prev;
-      nh.value = front + w;
+      nh.value = lh.value + w;
       nh.pos_y = pivot;
-      new_history.push_back(nh);
-    }
+      history.push_back(nh);
 
-
-    // Finally, swap histories
-    history.swap(new_history);
-
-
-    // Find the largest R Value
-    // Do the R-Value test
-    for (History h : history){
-      double nvalue = calculateR(h.pos_y, i, h.value, total_weight, options);
+      double second_term = static_cast<double>((nh.pos_y+1) * (i+1)) * one_over;
+      double nvalue = (nh.value / total_weight) - second_term;
       rvalue = nvalue > rvalue ? nvalue : rvalue; 
+    
+    } else {
+
+      if (pivot < lh.pos_y){
+
+        // we need to trawl back through the histories, updating as we go
+        
+        
+        for (int j = history.size()-1; j >= 0; --j){
+
+          History ph = history[j];        
+          if (ph.pos_y > pivot){
+            history[j].value += w;
+
+            double second_term = static_cast<double>((history[j].pos_y+1) * (i+1)) * one_over;
+            double nvalue = (history[j].value / total_weight) - second_term;
+            rvalue = nvalue > rvalue ? nvalue : rvalue; 
+          
+          } else {
+            // Insert new pivot
+            History nh;
+            nh.value = ph.value + w;
+            nh.pos_y = pivot;
+
+            std::vector<History>::iterator it = history.begin();
+            history.insert(it+j+1, nh);
+
+            double second_term = static_cast<double>((nh.pos_y+1) * (i+1)) * one_over;
+            double nvalue = (nh.value / total_weight) - second_term;
+            rvalue = nvalue > rvalue ? nvalue : rvalue; 
+            // We can break out of the loop at this point - no more changes needed
+            break;
+          }
+        }
+      }
+
+      // Worst case - the pivot is before all the histories
+      if (pivot < history[0].pos_y){
+        History nh;
+        nh.value = history[0].value - w;
+        nh.pos_y = pivot;
+
+        std::vector<History>::iterator it = history.begin();
+        history.insert(it, nh);
+        
+        double second_term = static_cast<double>((nh.pos_y+1) * (i+1)) * one_over;
+        double nvalue = (nh.value / total_weight) - second_term;
+        rvalue = nvalue > rvalue ? nvalue : rvalue; 
+
+      }
     }
 
   }
-
-
-  // Create two diagonals that hold our current results.
-  // Init with zeros. We add +1 as we want a border of 0s across the top and bottom of this matrix.
-/*
-  std::vector<float> back (options.num_genes + 1);
-  std::vector<float> front (options.num_genes + 1);
-
-
-  for (unsigned int i = 0; i < options.num_genes + 1; ++i ){
-    front[i] = back[i] = 0.0;
-  }
-
-  // Our nasty double loop Compare all the things!
-
-  float rvalue = 0;
-
-  for (unsigned int i = 1; i < options.num_genes + 1; ++i ){
-
-    unsigned int ivalue = gene_list0[i-1];
-
-    // We don't need to loop over all the inner list because genes are unique
-    // so we zoom straight to the corresponding gene using our buff lookup
-    // table. We compute the new front value and propagate forward while the
-    // values
-
-    float pivot = buff[ivalue] + 1;
-
-    for (unsigned int j = 1; j < pivot; ++j){
-      front[j] = back[j];
-    }
-
-    unsigned int jvalue = gene_list1[pivot-1];
-
-    float iw = calculateWeight(i, options.pivot);
-    float jw = calculateWeight(pivot, options.pivot);
-    float w = iw < jw ? iw : jw;
-    front[pivot] = back[pivot-1] + w;
-
-    for (unsigned int j = pivot + 1; j < options.num_genes + 1; ++j ){
-           
-      front[j] = back[j] +  front[j-1] - back[j-1];
-      
-      // Now check for the largest R score
-      float second_term =  static_cast<float>(i * j) / (options.num_genes * options.num_genes);
-      float nvalue = (front[j] / total_weight) - second_term; 
-
-      if (rvalue < nvalue) {
-        rvalue = nvalue;
-      } 
-    }
-
-    // Flip over the memory in the rmatrix (front row becomes rear row)
-    front.swap(back);
-
-  }*/
 
   return rvalue * sqrt(options.num_genes);
 }
