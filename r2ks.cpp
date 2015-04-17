@@ -198,6 +198,8 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
       prev_pos_y = nh.pos_y;
 
     }
+    
+    prev = front;
 
     // Finally, we check to see if the pivot is still greater than all the histories
     History lh = history[history.size()-1];
