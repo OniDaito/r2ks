@@ -157,26 +157,24 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
 
       std::vector<History>::iterator it = history.end();
 
-      if (pivot < lh.pos_y){
+   
 
-        // we need to trawl back through the histories, updating as we go
-      
+      // we need to trawl back through the histories, updating as we go
+    
+      for (it--; it != history.begin() && it->pos_y > pivot; it--){
+      //for (int j = history.size()-1; j >= 0; --j){
 
-        for (it--; it != history.begin() && it->pos_y > pivot; it--){
-        //for (int j = history.size()-1; j >= 0; --j){
+        History ph = *it;        
+        if (ph.pos_y > pivot){
+          it->value += w;
 
-          History ph = *it;        
-          if (ph.pos_y > pivot){
-            it->value += w;
-
-            double second_term = static_cast<double>((it->pos_y+1) * (i+1)) * one_over;
-            double nvalue = (it->value / total_weight) - second_term;
-            rvalue = nvalue > rvalue ? nvalue : rvalue; 
-          
-          } 
-        }
+          double second_term = static_cast<double>((it->pos_y+1) * (i+1)) * one_over;
+          double nvalue = (it->value / total_weight) - second_term;
+          rvalue = nvalue > rvalue ? nvalue : rvalue; 
+        
+        } 
       }
-
+      
       // Insert new pivot
       History nh;
       nh.value = it->value + w;
