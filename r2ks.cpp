@@ -55,12 +55,22 @@ float calculateWeight(unsigned int idx, unsigned int pivot) {
 
 
 /**
+ * Calculate the R Value for the given parameters
+ */
+
+double calculateR(unsigned int i, unsigned int j, double front, double total_weight, Options & options){
+  double second_term = static_cast<double>((j+1) * (i+1)) / (options.num_genes * options.num_genes);
+  return (front / total_weight - second_term);
+}
+
+
+/**
  * Perform the r2ks score for two lists
  * Take the two lists, the corresponding weights and the total weight, then perform
  * the scoring.
  */
 
-float scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std::vector<unsigned int> & gene_list1) {
+double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std::vector<unsigned int> & gene_list1) {
 
   // First, calculate total weeight
   // TODO - we can so cache this
@@ -79,69 +89,203 @@ float scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std:
     buff[ gene_list1[i] ] = i;
   }
 
+  // The algorithm follows the paper:
+  // http://online.liebertpub.com/doi/pdf/10.1089/cmb.2012.0026
+  // We optimise the algorithm by storing a history of previous values in the second loop
+  // We take advantage of the fact that a gene is unique and always occurs in both lists and only once
+  // thus rather than filling in the complete matrix, we only fill in the values we need by keeping
+  // a record of where and what the previous values were.
+
+  typedef struct {
+    unsigned int pos_y;
+    double value;
+    double prev_value;
+ 
+  }History;
+
+  std::vector<History> history;
+
+  double rvalue = 0.0;
+
+  // First line has no history, so we do this one separately.
+  {
+
+    unsigned int ivalue = gene_list0[0];
+    float pivot = buff[ivalue];
+
+    double iw = calculateWeight(0, options.pivot);
+    double jw = calculateWeight(pivot, options.pivot);
+    double w = iw < jw ? iw : jw;
+    double front = w;
+
+    double prev = 0.0;
+
+    History nh;
+    nh.value = front;
+    nh.pos_y = pivot;
+    nh.prev_value = prev;
+
+    history.push_back(nh);
+
+  }
+
+  for (History h : history){
+    cout << h.pos_y << ",(" << h.value << "," << h.prev_value << ")" << endl;
+  }
+  cout << "---" << endl;
+
+
+  // Now we have a history so we perform the operation normally
+
+  for (unsigned int i = 1; i < options.num_genes; ++i ){
+
+    unsigned int ivalue = gene_list0[i];
+    float pivot = buff[ivalue];
+
+    double iw = calculateWeight(i, options.pivot);
+    double jw = calculateWeight(pivot, options.pivot);
+    double w = iw < jw ? iw : jw;
+    
+    double front = 0.0;
+    double prev = 0.0;
+
+    std::vector<History> new_history;
+
+    unsigned int prev_pos_y = 0;
+
+    // If pivot is less than all the history that will bump things up
+    if (pivot < history[0].pos_y){
+      front = history[0].prev_value + w;
+
+      // Add pivot as a new history item
+      History nh;
+      nh.value = front;
+      nh.prev_value = prev;
+      nh.pos_y = pivot;
+      new_history.push_back(nh);
+      prev_pos_y = pivot;
+    }
+
+
+    // Loop through the histories
+   
+
+    for (History h : history){
+      prev = front;
+
+      // Check if out pivot happened between previous and this history
+      if (pivot > prev_pos_y && pivot < h.pos_y){
+        // It did so insert
+        front = h.prev_value + w;
+        History nh;
+        nh.prev_value = prev;
+        nh.value = front;
+        nh.pos_y = pivot;
+        new_history.push_back(nh);
+        prev = front;
+
+      }
+     
+      front = prev + h.value - h.prev_value;
+  
+      // Create new history
+      History nh;
+      nh.prev_value = prev;
+      nh.value = front;
+      nh.pos_y = h.pos_y;
+      new_history.push_back(nh);
+
+      prev_pos_y = nh.pos_y;
+
+    }
+
+    // Finally, we check to see if the pivot is still greater than all the histories
+    History lh = history[history.size()-1];
+    if (pivot > lh.pos_y){
+      History nh;
+      nh.prev_value = prev;
+      nh.value = front + w;
+      nh.pos_y = pivot;
+      new_history.push_back(nh);
+    }
+
+
+    // Finally, swap histories
+    history.swap(new_history);
+
+
+    // Find the largest R Value
+    // Do the R-Value test
+    for (History h : history){
+      double nvalue = calculateR(h.pos_y, i, h.value, total_weight, options);
+      rvalue = nvalue > rvalue ? nvalue : rvalue; 
+    }
+
+
+    for (History h : history){
+      cout << h.pos_y << ",(" << h.value << "," << h.prev_value << ")" << endl;
+    }
+    cout << "---" << endl;
+
+  }
+
 
   // Create two diagonals that hold our current results.
   // Init with zeros. We add +1 as we want a border of 0s across the top and bottom of this matrix.
 
-  std::vector< vector<float> > rmatrix(2, vector<float>(options.num_genes + 1));
+  /*std::vector<float> back (options.num_genes + 1);
+  std::vector<float> front (options.num_genes + 1);
 
-  std::vector<float> matrix0 (options.num_genes + 1);
-  std::vector<float> matrix1 (options.num_genes + 1);
-
-  std::vector<float> * front = &matrix0;
-  std::vector<float> * back = &matrix1;
 
   for (unsigned int i = 0; i < options.num_genes + 1; ++i ){
-    matrix0[i] = matrix1[i] = 0.0;
+    front[i] = back[i] = 0.0;
   }
 
   // Our nasty double loop Compare all the things!
 
   float rvalue = 0;
 
-  float front_j = 0;
-  float tvalue = 0;
-
   for (unsigned int i = 1; i < options.num_genes + 1; ++i ){
 
     unsigned int ivalue = gene_list0[i-1];
 
-    for (unsigned int j = 1; j < options.num_genes + 1; ++j ){
-      
-      unsigned int jvalue = gene_list1[j-1];
+    // We don't need to loop over all the inner list because genes are unique
+    // so we zoom straight to the corresponding gene using our buff lookup
+    // table. We compute the new front value and propagate forward while the
+    // values
 
-      if (ivalue == jvalue){
-          float iw = calculateWeight(i, options.pivot);
-          float jw = calculateWeight(j, options.pivot);
-          float w = iw < jw ? iw : jw;
-          (*front)[j] = (*back)[j-1] + w;
-          front_j += w;           
-      } else {
-        (*front)[j] = (*back)[j] +  (*front)[j-1] - (*back)[j-1];
-      }
+    float pivot = buff[ivalue] + 1;
+
+    for (unsigned int j = 1; j < pivot; ++j){
+      front[j] = back[j];
+    }
+
+    unsigned int jvalue = gene_list1[pivot-1];
+
+    float iw = calculateWeight(i, options.pivot);
+    float jw = calculateWeight(pivot, options.pivot);
+    float w = iw < jw ? iw : jw;
+    front[pivot] = back[pivot-1] + w;
+
+    for (unsigned int j = pivot + 1; j < options.num_genes + 1; ++j ){
+           
+      front[j] = back[j] +  front[j-1] - back[j-1];
+      
       // Now check for the largest R score
       float second_term =  static_cast<float>(i * j) / (options.num_genes * options.num_genes);
-      float nvalue = ((*front)[j] / total_weight) - second_term; 
+      float nvalue = (front[j] / total_weight) - second_term; 
 
       if (rvalue < nvalue) {
         rvalue = nvalue;
-        tvalue = (front_j / total_weight) - second_term; 
-      }
-
-    
+      } 
     }
 
     // Flip over the memory in the rmatrix (front row becomes rear row)
-    std::vector<float> * tmp = front;
-    front = back;
-    back = tmp;
+    front.swap(back);
 
-    // And the temp numbers
+  }*/
 
-
-  }
-  return tvalue * sqrt(options.num_genes);
-  //return rvalue * sqrt(options.num_genes);
+  return rvalue * sqrt(options.num_genes);
 }
 
 
@@ -369,15 +513,36 @@ int main (int argc, const char * argv[]) {
   // Read only, so mpi processes shouldnt clash with that
   readHeaderBlock(ops);
 
-  // The master MPI Process will farm out to the required processes
-  if (ops.mpi_id == 0){
-    masterProcess(ops);
+  if (ops.num_procs > 1){
+
+    // The master MPI Process will farm out to the required processes
+    if (ops.mpi_id == 0){
+      masterProcess(ops);
+
+    } else {
+      clientProcess(ops);
+    }
 
   } else {
-    clientProcess(ops);
+
+    for (int i = 0; i < ops.num_lists; ++i ){
+      for (int j = i + 1; j < ops.num_lists; ++j ){
+
+        int l0 = i + 1;
+        int l1 = j + 1;
+        
+        std::vector<unsigned int> gene_list0(ops.num_genes);
+        std::vector<unsigned int> gene_list1(ops.num_genes);
+
+        readLineIndex(ops, l0, gene_list0);
+        readLineIndex(ops, l1, gene_list1);
+
+        float rvalue = scoreLists(ops, gene_list0, gene_list1 );
+
+        cout << l0 << "_" << l1 << " " << rvalue << endl;
+      }
+    }
   }
 
-
   MPI_Finalize();
-
 }
