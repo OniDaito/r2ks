@@ -156,16 +156,17 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
       if (pivot < lh.pos_y){
 
         // we need to trawl back through the histories, updating as we go
-        
-        
-        for (int j = history.size()-1; j >= 0; --j){
+        std::vector<History>::iterator it = history.end();
 
-          History ph = history[j];        
+        for (--it; it != history.begin() && it->pos_y > pivot; --it){
+        //for (int j = history.size()-1; j >= 0; --j){
+
+          History ph = *it;        
           if (ph.pos_y > pivot){
-            history[j].value += w;
+            it->value += w;
 
-            double second_term = static_cast<double>((history[j].pos_y+1) * (i+1)) * one_over;
-            double nvalue = (history[j].value / total_weight) - second_term;
+            double second_term = static_cast<double>((it->pos_y+1) * (i+1)) * one_over;
+            double nvalue = (it->value / total_weight) - second_term;
             rvalue = nvalue > rvalue ? nvalue : rvalue; 
           
           } else {
@@ -174,14 +175,12 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
             nh.value = ph.value + w;
             nh.pos_y = pivot;
 
-            std::vector<History>::iterator it = history.begin();
-            history.insert(it+j+1, nh);
+            history.insert(it+1, nh);
 
             double second_term = static_cast<double>((nh.pos_y+1) * (i+1)) * one_over;
             double nvalue = (nh.value / total_weight) - second_term;
             rvalue = nvalue > rvalue ? nvalue : rvalue; 
-            // We can break out of the loop at this point - no more changes needed
-            break;
+           
           }
         }
       }
