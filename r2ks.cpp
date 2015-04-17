@@ -141,6 +141,8 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
     // we check to see if the pivot is still greater than all the histories
     // This is the best case scenario
 
+
+
     if (pivot > lh.pos_y){
       History nh;
       nh.value = lh.value + w;
@@ -153,12 +155,14 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
     
     } else {
 
+      std::vector<History>::iterator it = history.end();
+
       if (pivot < lh.pos_y){
 
         // we need to trawl back through the histories, updating as we go
-        std::vector<History>::iterator it = history.end();
+      
 
-        for (--it; it != history.begin() && it->pos_y > pivot; --it){
+        for (it--; it != history.begin() && it->pos_y > pivot; it--){
         //for (int j = history.size()-1; j >= 0; --j){
 
           History ph = *it;        
@@ -169,36 +173,21 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
             double nvalue = (it->value / total_weight) - second_term;
             rvalue = nvalue > rvalue ? nvalue : rvalue; 
           
-          } else {
-            // Insert new pivot
-            History nh;
-            nh.value = ph.value + w;
-            nh.pos_y = pivot;
-
-            history.insert(it+1, nh);
-
-            double second_term = static_cast<double>((nh.pos_y+1) * (i+1)) * one_over;
-            double nvalue = (nh.value / total_weight) - second_term;
-            rvalue = nvalue > rvalue ? nvalue : rvalue; 
-           
-          }
+          } 
         }
       }
 
-      // Worst case - the pivot is before all the histories
-      if (pivot < history[0].pos_y){
-        History nh;
-        nh.value = history[0].value - w;
-        nh.pos_y = pivot;
+      // Insert new pivot
+      History nh;
+      nh.value = it->value + w;
+      nh.pos_y = pivot;
 
-        std::vector<History>::iterator it = history.begin();
-        history.insert(it, nh);
-        
-        double second_term = static_cast<double>((nh.pos_y+1) * (i+1)) * one_over;
-        double nvalue = (nh.value / total_weight) - second_term;
-        rvalue = nvalue > rvalue ? nvalue : rvalue; 
+      history.insert(it+1, nh);
 
-      }
+      double second_term = static_cast<double>((nh.pos_y+1) * (i+1)) * one_over;
+      double nvalue = (nh.value / total_weight) - second_term;
+      rvalue = nvalue > rvalue ? nvalue : rvalue; 
+
     }
 
   }
