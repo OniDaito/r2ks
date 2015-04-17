@@ -129,12 +129,6 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
 
   }
 
-  for (History h : history){
-    cout << h.pos_y << ",(" << h.value << "," << h.prev_value << ")" << endl;
-  }
-  cout << "---" << endl;
-
-
   // Now we have a history so we perform the operation normally
 
   for (unsigned int i = 1; i < options.num_genes; ++i ){
@@ -153,6 +147,11 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
 
     unsigned int prev_pos_y = 0;
 
+    // TODO - we should loop through in reverse as we
+    // we can save a lot of time. If the Pivot is greater
+    // than all histories we are quids in - we can do one operation
+    // and just copy across
+
     // If pivot is less than all the history that will bump things up
     if (pivot < history[0].pos_y){
       front = history[0].prev_value + w;
@@ -168,7 +167,6 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
 
 
     // Loop through the histories
-   
 
     for (History h : history){
       prev = front;
@@ -198,7 +196,7 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
       prev_pos_y = nh.pos_y;
 
     }
-    
+
     prev = front;
 
     // Finally, we check to see if the pivot is still greater than all the histories
@@ -223,19 +221,13 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
       rvalue = nvalue > rvalue ? nvalue : rvalue; 
     }
 
-
-    for (History h : history){
-      cout << h.pos_y << ",(" << h.value << "," << h.prev_value << ")" << endl;
-    }
-    cout << "---" << endl;
-
   }
 
 
   // Create two diagonals that hold our current results.
   // Init with zeros. We add +1 as we want a border of 0s across the top and bottom of this matrix.
-
-  /*std::vector<float> back (options.num_genes + 1);
+/*
+  std::vector<float> back (options.num_genes + 1);
   std::vector<float> front (options.num_genes + 1);
 
 
