@@ -12,6 +12,8 @@
 #include <cstdlib>
 #include <getopt.h>
 #include <mpi.h>
+#include <sstream>
+
 
 using namespace std;
 
@@ -21,9 +23,10 @@ struct Options {
   std::string filename;
 
   // Internal
-  unsigned int num_genes;
-  unsigned int num_lists;
-  unsigned int pivot;
+  unsigned int  num_genes;
+  unsigned int  num_lists;
+  unsigned int  pivot;
+  bool          two_tailed;
 
   // MPI
   int num_procs, mpi_id;
@@ -45,11 +48,12 @@ MPI_Datatype resultType;
  * For now, we are ignoring weight
  */
 
-float calculateWeight(unsigned int idx, unsigned int pivot) {
-  return 1.0;
-  int h = (pivot - idx);
-  float w = h * (h + 1.0) / 2.0;
-  w = w < 0 ? 1 : w;
+double calculateWeight(unsigned int idx, unsigned int pivot) {
+  if (pivot == 0)
+    return 1.0;
+  double h = static_cast<double>(pivot) - static_cast<double>(idx);
+  double w = h * (h + 1.0) / 2.0;
+  w = w < 0.0 ? 1.0 : w;
   return w;
 }
 
@@ -96,7 +100,6 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
   double rvalue = 0.0;
   double one_over = 1.0 /  (options.num_genes * options.num_genes);
 
-
   std::vector<History> history;
 
 
@@ -106,9 +109,9 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
     unsigned int ivalue = gene_list0[0];
     float pivot = buff[ivalue];
 
-    double iw = calculateWeight(0, options.pivot);
-    double jw = calculateWeight(pivot, options.pivot);
-    double w = iw < jw ? iw : jw;
+    double w = calculateWeight(0, options.pivot);
+    //double jw = calculateWeight(pivot, options.pivot);
+    //double w = iw < jw ? iw : jw;
     double front = w;
 
     double prev = 0.0;
@@ -135,13 +138,10 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
     
     double front = 0.0;
 
-
     History lh = history[history.size()-1];
 
     // we check to see if the pivot is still greater than all the histories
     // This is the best case scenario
-
-
 
     if (pivot > lh.pos_y){
       History nh;
@@ -157,21 +157,15 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
 
       std::vector<History>::iterator it = history.end();
 
-   
-
       // we need to trawl back through the histories, updating as we go
     
       for (it--; it != history.begin() && it->pos_y > pivot; it--){
-      //for (int j = history.size()-1; j >= 0; --j){
 
-        History ph = *it;        
-        if (ph.pos_y > pivot){
+        if (it->pos_y > pivot){
           it->value += w;
-
           double second_term = static_cast<double>((it->pos_y+1) * (i+1)) * one_over;
           double nvalue = (it->value / total_weight) - second_term;
           rvalue = nvalue > rvalue ? nvalue : rvalue; 
-        
         } 
       }
       
@@ -235,6 +229,14 @@ void readLineIndex(Options & options, int idx, std::vector<unsigned int> & gene_
 }
 
 
+template<class T> inline T FromStringS9(const std::string& s) {
+  std::istringstream stream (s);
+  T t;
+  stream >> t;
+  return t;
+}
+
+
 /**
  * parse our command line options
  */
@@ -247,10 +249,18 @@ void parseCommandOptions (int argc, const char * argv[], Options &options) {
 
   int option_index = 0;
 
-  while ((c = getopt_long(argc, (char **)argv, "f:?", long_options, &option_index)) != -1) {
+  while ((c = getopt_long(argc, (char **)argv, "f:w:t?", long_options, &option_index)) != -1) {
     int this_option_optind = optind ? optind : 1;
     switch (c) {
       case 0 :
+        break;
+
+      case 'w' :
+        options.pivot = FromStringS9<unsigned int>(std::string(optarg));
+        break;
+
+      case 't' :
+        options.two_tailed = true;
         break;
   
       case 'f' :
@@ -310,18 +320,13 @@ void masterProcess(Options &options){
   } 
 
   // Now wait to receive the results
+  unsigned int results = 0;
 
-  vector <MPIResult> results;
-
-  while(results.size() < total_tests){
+  while(results < total_tests){
     MPIResult mp;
     MPI_Status status;
     MPI_Recv(&mp, 1, resultType, MPI_ANY_SOURCE,  MPI_ANY_TAG,MPI_COMM_WORLD, &status );
-    results.push_back(mp);
-  }
-
-  // Finish with the results
-  for (MPIResult mp : results){
+    results++;
     std::cout << mp.i << "_" << mp.j << " " << mp.result << std::endl;
   }
 
@@ -357,6 +362,13 @@ void clientProcess(Options &options){
 
     float rvalue = scoreLists(options, gene_list0, gene_list1 );
 
+    // For a two-tailed test reverse the order of the second list and compare
+    if (options.two_tailed){
+      std::reverse(gene_list1.begin(), gene_list1.end());
+      float tvalue = scoreLists(options, gene_list0, gene_list1 );
+      rvalue = tvalue > rvalue ? tvalue : rvalue;
+    }
+
     MPIResult mp;
     mp.i = l0;
     mp.j = l1;
@@ -379,6 +391,7 @@ int main (int argc, const char * argv[]) {
 
   // Defaults for Options
   ops.pivot = 0;
+  ops.two_tailed = false;
   parseCommandOptions(argc,argv,ops);
 
   // MPI Init
@@ -391,11 +404,11 @@ int main (int argc, const char * argv[]) {
   MPI_Comm_rank(MPI_COMM_WORLD, &ops.mpi_id);
   MPI_Get_processor_name(name, &length_name);
   
-  if (ops.mpi_id == 0){
-    cout << "MPI NumProcs: " << ops.num_procs << endl;
-  }
+  //if (ops.mpi_id == 0){
+  //  cout << "MPI NumProcs: " << ops.num_procs << endl;
+  //}
   
-  cout << "MPI ID: " << ops.mpi_id << " Name: " << name << endl;
+  //cout << "MPI ID: " << ops.mpi_id << " Name: " << name << endl;
 
   /// MPI Datatype for results
   MPI_Aint offsets[2], extent; 
@@ -443,6 +456,12 @@ int main (int argc, const char * argv[]) {
         readLineIndex(ops, l1, gene_list1);
 
         float rvalue = scoreLists(ops, gene_list0, gene_list1 );
+
+        if (ops.two_tailed){
+          std::reverse(gene_list1.begin(), gene_list1.end());
+          float tvalue = scoreLists(ops, gene_list0, gene_list1 );
+          rvalue = tvalue > rvalue ? tvalue : rvalue;
+        }
 
         cout << l0 << "_" << l1 << " " << rvalue << endl;
       }
