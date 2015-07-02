@@ -1,7 +1,8 @@
 /**
  * A remake of the R2KS code, optimised for the apocrita cluster
+ * Based on the paper by Ni and Vingron
+ * http://pubman.mpdl.mpg.de/pubman/item/escidoc:1702988/component/escidoc:1711821/Ni.pdf
  */
-
 
 #include <iostream>
 #include <fstream>
@@ -13,7 +14,6 @@
 #include <getopt.h>
 #include <mpi.h>
 #include <sstream>
-
 
 using namespace std;
 
@@ -52,8 +52,7 @@ double calculateWeight(unsigned int idx, unsigned int pivot) {
   if (pivot == 0)
     return 1.0;
   double h = static_cast<double>(pivot) - static_cast<double>(idx);
-  double w = h * (h + 1.0) / 2.0;
-  w = w < 0.0 ? 1.0 : w;
+  double w = h < 0.0 ? 1.0 : h * (h + 1.0) / 2.0;  
   return w;
 }
 
@@ -67,7 +66,7 @@ double calculateWeight(unsigned int idx, unsigned int pivot) {
 double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std::vector<unsigned int> & gene_list1) {
 
 
-  // First, calculate total weeight
+  // First, calculate total weight
   // TODO - we can so cache this
 
   // TODO - Given how weights are calculated this formula might work
@@ -75,6 +74,7 @@ double scoreLists(Options & options, std::vector<unsigned int> & gene_list0, std
 
   float total_weight = 0.0;
   for (unsigned int i = 0; i < gene_list0.size(); ++i ){
+    //cout << "weight " <<  calculateWeight(i, options.pivot) << endl;
     total_weight += calculateWeight(i, options.pivot);
   }
 
@@ -295,7 +295,7 @@ void masterProcess(Options &options){
 
   // Create our list of pairs
   for (int i=1; i < options.num_lists + 1; ++i){
-    for (int j = i + 1; j < options.num_lists + 1; ++j){
+    for (int j = i; j < options.num_lists + 1; ++j){
       test_numbers.push_back( i );
       test_numbers.push_back( j );
     }
