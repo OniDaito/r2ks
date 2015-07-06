@@ -30,12 +30,12 @@ Options include '''-t''' for a two tailed test and  '''-w <weight>''' to use the
 
 Files should be of the format
 
-    <num genes> <num lists>
-    <list 0 of gene expressions>
-    <list 1 of gene expressions>
+    <length N of all lists> <num lists>
+    <list 0 of length N>
+    <list 1 of length N>
     ...
     ...
-    <list n of gene expressions>
+    <list n of length N>
 
 ## TODO
 
