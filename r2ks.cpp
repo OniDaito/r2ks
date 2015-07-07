@@ -12,7 +12,11 @@
 #include <list>
 #include <cstdlib>
 #include <getopt.h>
+
+#ifdef USE_MPI
 #include <mpi.h>
+#endif
+
 #include <sstream>
 
 using namespace std;
@@ -33,7 +37,7 @@ struct Options {
 
 };
 
-
+#ifdef USE_MPI
 // MPI Datatype
 typedef struct {
   int i,j;
@@ -41,7 +45,7 @@ typedef struct {
 }MPIResult;
 
 MPI_Datatype resultType;
-
+#endif
 
 /**
  * Calculate the weight for this term
@@ -282,6 +286,8 @@ void parseCommandOptions (int argc, const char * argv[], Options &options) {
 }
 
 
+#ifdef USE_MPI 
+
 /**
  * Master MPI Process
  */
@@ -333,6 +339,7 @@ void masterProcess(Options &options){
 
 }
 
+
 /**
  * Client MPI Process
  */
@@ -380,7 +387,7 @@ void clientProcess(Options &options){
 
 }
 
-
+#endif
 
 /**
  * Main entry point
@@ -393,6 +400,8 @@ int main (int argc, const char * argv[]) {
   ops.pivot = 0;
   ops.two_tailed = false;
   parseCommandOptions(argc,argv,ops);
+
+#ifdef USE_MPI
 
   // MPI Init
 
@@ -441,32 +450,39 @@ int main (int argc, const char * argv[]) {
       clientProcess(ops);
     }
 
-  } else {
+  }
+  MPI_Finalize(); 
+#endif
 
-    for (int i = 0; i < ops.num_lists; ++i ){
-      for (int j = i + 1; j < ops.num_lists; ++j ){
+#ifndef USE_MPI
 
-        int l0 = i + 1;
-        int l1 = j + 1;
-        
-        std::vector<unsigned int> gene_list0(ops.num_genes);
-        std::vector<unsigned int> gene_list1(ops.num_genes);
+  readHeaderBlock(ops);
 
-        readLineIndex(ops, l0, gene_list0);
-        readLineIndex(ops, l1, gene_list1);
+  for (int i = 0; i < ops.num_lists; ++i ){
+    for (int j = i + 1; j < ops.num_lists; ++j ){
 
-        float rvalue = scoreLists(ops, gene_list0, gene_list1 );
+      int l0 = i + 1;
+      int l1 = j + 1;
+      
+      std::vector<unsigned int> gene_list0(ops.num_genes);
+      std::vector<unsigned int> gene_list1(ops.num_genes);
 
-        if (ops.two_tailed){
-          std::reverse(gene_list1.begin(), gene_list1.end());
-          float tvalue = scoreLists(ops, gene_list0, gene_list1 );
-          rvalue = tvalue > rvalue ? tvalue : rvalue;
-        }
+      readLineIndex(ops, l0, gene_list0);
+      readLineIndex(ops, l1, gene_list1);
 
-        cout << l0 << "_" << l1 << " " << rvalue << endl;
+      float rvalue = scoreLists(ops, gene_list0, gene_list1 );
+
+      if (ops.two_tailed){
+        std::reverse(gene_list1.begin(), gene_list1.end());
+        float tvalue = scoreLists(ops, gene_list0, gene_list1 );
+        rvalue = tvalue > rvalue ? tvalue : rvalue;
       }
+
+      cout << l0 << "_" << l1 << " " << rvalue << endl;
     }
   }
+#endif
+  
+  return 0;
 
-  MPI_Finalize();
 }
