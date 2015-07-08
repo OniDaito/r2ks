@@ -13,10 +13,14 @@ To build, you need either OpenMPI, MPICH or Intel MPI installed and running. At 
 
 This code has been tested on GCC and ICC on Ubuntu linux.
 
-Execute the script '''build_local.sh''' or run  something like the following:
+Execute the script **build_local.sh** or run  something like the following:
 
-    icpc --std=c++11 -qopenmp -O3 -ipo -no-prec-div -fp-model fast=2 -I /opt/intel/impi/5.0.2.044/include64 \
+    icpc --std=c++11 -qopenmp -O3 -ipo -no-prec-div -fp-model fast=2 -D USE_MPI -I /opt/intel/impi/5.0.2.044/include64 \
     -L /opt/intel/impi/5.0.2.044/lib64 -lpthread -lmpi -lrt r2ks.cpp -o r2ks
+
+There is an option -D USE_MPI which turns on MPI. Remove this switch to use OpenMP locally.
+
+Look inside the build_local.sh for build options on Linux and OSX. You'll need clang-omp++ for building on OSX.
 
 ## Running
 
@@ -24,7 +28,12 @@ You should have an MPI setup installed and running
 
     mpirun -n 4 ./r2ks -f <filename>
 
-Options include '''-t''' for a two tailed test and  '''-w <weight>''' to use the weight.
+Or running locally with OpenMP
+
+    OMP_PLACES=cores OMP_PROC_BIND=spread OMP_NUM_THREADS=4 ./r2ks -f test100.t
+
+
+Options include **-t** for a two tailed test and  **-w <pivot>** to use the weight with the given pivot point (index into the list)
 
 ## File Format
 

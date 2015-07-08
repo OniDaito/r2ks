@@ -12,11 +12,14 @@
 #include <list>
 #include <cstdlib>
 #include <getopt.h>
+#include <time.h>
+#include <sys/time.h>
 
 #ifdef USE_MPI
 #include <mpi.h>
 #endif
 
+#include <omp.h>
 #include <sstream>
 
 using namespace std;
@@ -395,15 +398,17 @@ void clientProcess(Options &options){
 
 int main (int argc, const char * argv[]) {
   Options ops;
-
+ 
   // Defaults for Options
   ops.pivot = 0;
   ops.two_tailed = false;
   parseCommandOptions(argc,argv,ops);
-
+ 
 #ifdef USE_MPI
 
   // MPI Init
+
+  struct timeval start,end; 
 
   MPI_Init(&argc, const_cast<char***>(&argv));
   int length_name;
@@ -440,6 +445,8 @@ int main (int argc, const char * argv[]) {
   // Read only, so mpi processes shouldnt clash with that
   readHeaderBlock(ops);
 
+  gettimeofday(&start,NULL);  
+
   if (ops.num_procs > 1){
 
     // The master MPI Process will farm out to the required processes
@@ -451,38 +458,59 @@ int main (int argc, const char * argv[]) {
     }
 
   }
-  MPI_Finalize(); 
+  MPI_Finalize();
+  gettimeofday(&end,NULL);
+  
+  double dif = ((double)end.tv_sec + (double)end.tv_usec * .000001) -
+    ((double)start.tv_sec + (double)start.tv_usec * .000001);
+
+  cout << "Wall clock time: " << dif << endl; 
+ 
 #endif
 
 #ifndef USE_MPI
 
   readHeaderBlock(ops);
 
-  for (int i = 0; i < ops.num_lists; ++i ){
-    for (int j = i + 1; j < ops.num_lists; ++j ){
+  double start, end;
+  start = omp_get_wtime(); 
+ 
+  cout << "Running with OpenMP with " <<  omp_get_num_threads() << " threads" <<  endl;
+  
+  {
+    
+#pragma omp parallel for
+    for (int i = 0; i < ops.num_lists; ++i ){
+         
+      for (int j = i + 1; j < ops.num_lists; ++j ){ 
+        int l0 = i + 1;
+        int l1 = j + 1;
+        
+        std::vector<unsigned int> gene_list0(ops.num_genes);
+        std::vector<unsigned int> gene_list1(ops.num_genes);
 
-      int l0 = i + 1;
-      int l1 = j + 1;
-      
-      std::vector<unsigned int> gene_list0(ops.num_genes);
-      std::vector<unsigned int> gene_list1(ops.num_genes);
+        readLineIndex(ops, l0, gene_list0);
+        readLineIndex(ops, l1, gene_list1);
 
-      readLineIndex(ops, l0, gene_list0);
-      readLineIndex(ops, l1, gene_list1);
+        float rvalue = scoreLists(ops, gene_list0, gene_list1 );
 
-      float rvalue = scoreLists(ops, gene_list0, gene_list1 );
+        if (ops.two_tailed){
+          std::reverse(gene_list1.begin(), gene_list1.end());
+          float tvalue = scoreLists(ops, gene_list0, gene_list1 );
+          rvalue = tvalue > rvalue ? tvalue : rvalue;
+        }
 
-      if (ops.two_tailed){
-        std::reverse(gene_list1.begin(), gene_list1.end());
-        float tvalue = scoreLists(ops, gene_list0, gene_list1 );
-        rvalue = tvalue > rvalue ? tvalue : rvalue;
+        cout << l0 << "_" << l1 << " " << rvalue << endl;
+        
       }
-
-      cout << l0 << "_" << l1 << " " << rvalue << endl;
     }
   }
-#endif
   
+  end = omp_get_wtime();
+  cout << "Wall clock time: " << end - start << endl; 
+   
+
+#endif
   return 0;
 
 }
